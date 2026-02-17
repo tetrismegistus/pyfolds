@@ -378,10 +378,10 @@ void processOne(uint sid) {
 
         float t = fGlobalTime;
         // gentle, slow rotation (period ~ 60–120s)
-        v.xy = rot(0.5 * sin(t * 0.8)) * v.xy; 
+        v.xy = rot(0.5 * sin(t * 0.5)) * v.xy; 
         
         
-        vec2 p1 = v_pdj(v, 1.0) * v_disc(v, 1.);
+        vec2 p1 = v_hyperbolic(v, 1.0) / v_disc(v, 1.5);
         v = v_julia(p1, 1.);
         
         v = wrap(v);

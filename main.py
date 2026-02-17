@@ -23,10 +23,27 @@ from PIL import Image
 WG_X, WG_Y = 16, 16  # must match local_size in BOTH compute shaders
 
 # Match your Processing domain
-X1, X2 = -1.0, 1.0
-Y1, Y2 = -1.0, 1.0
+X1, X2 = -3.0, 3.0
+Y1, Y2 = -3.0, 3.0
 MARGIN_FRAC = 0.05
 
+
+
+# Wrap mode IDs (must match shader)
+WRAP_NO_WRAP    = 0
+WRAP_SINUSOIDAL = 1
+WRAP_SPHERICAL  = 2
+WRAP_MOD        = 3
+
+WRAP_MODE_LABELS = {
+    WRAP_NO_WRAP:    "NO_WRAP",
+    WRAP_SINUSOIDAL: "SINUSOIDAL",
+    WRAP_SPHERICAL:  "SPHERICAL",
+    WRAP_MOD:        "MOD",
+}
+
+def wrap_mode_label(mode: int) -> str:
+    return WRAP_MODE_LABELS.get(int(mode), f"UNKNOWN({mode})")
 
 def read_text(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
@@ -345,7 +362,7 @@ class App(mglw.WindowConfig):
             self.request_capture(out_dir="saves", prefix="frame")
         elif key == self.wnd.keys.W:
             self.wrap_mode = (self.wrap_mode + 1) % 4
-            print("wrap_mode:", self.wrap_mode)
+            print(f"wrap_mode: {self.wrap_mode} ({wrap_mode_label(self.wrap_mode)})")
         elif key == self.wnd.keys.TAB:
             self.show_ui = not self.show_ui
 
@@ -382,7 +399,8 @@ class App(mglw.WindowConfig):
         )
 
         imgui.separator()
-        imgui.text(f"wrap_mode: {self.wrap_mode}  (W cycles)")
+        imgui.text(f"wrap_mode: {self.wrap_mode} ({wrap_mode_label(self.wrap_mode)})  (W cycles)")
+
 
         if imgui.button("Reset accum (R)"):
             self.reset_accum()
