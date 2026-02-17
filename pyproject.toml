@@ -1,7 +1,6 @@
 [project]
-name = "mgl-test"
+name = "pyfolds"
 version = "0.1.0"
-description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -12,3 +11,11 @@ dependencies = [
     "pygame>=2.6.1",
     "pyopengl>=3.1.10",
 ]
+
+[tool.uv]
+package = true
+
+
+
+[project.scripts]
+pyfolds = "pyfolds.__main__:main"

@@ -500,5 +500,9 @@ class App(mglw.WindowConfig):
         self.imgui.render(imgui.get_draw_data())
 
 
-if __name__ == "__main__":
+def main():
     mglw.run_window_config(App)
+
+
+if __name__ == "__main__":
+    main()
