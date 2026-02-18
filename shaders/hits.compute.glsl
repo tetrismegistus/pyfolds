@@ -45,6 +45,13 @@ uniform float pdj_b;
 uniform float pdj_c;
 uniform float pdj_d;
 
+uniform float dejong_a;
+uniform float dejong_b;
+uniform float dejong_c;
+uniform float dejong_d;
+
+uniform int n;
+
 uniform float popcorn_c;
 uniform float popcorn_f;
 
@@ -54,13 +61,25 @@ uniform float waves_e;
 uniform float waves_f;
 
 uniform float rings_c;
+uniform float rings2_c;
 
 uniform float fan_c;
 uniform float fan_f;
+uniform float fan2_x;
+uniform float fan2_y;
 
 uniform float blob_high;
 uniform float blob_low;
 uniform float blob_waves;
+
+uniform float perspective_a;
+uniform float perspective_d;
+
+uniform float julian_power;   
+uniform float julian_dist;    
+
+uniform float juliascope_power;
+uniform float juliascope_dist;    
 
 
 // --- helpers matching your Processing MIN/MAX ---
@@ -316,6 +335,15 @@ vec2 v_rings(vec2 v, float amount) {
     return amount * vec2(cos(theta), sin(theta)) * factor;
 }
 
+vec2 v_rings2(vec2 v, float amount) {
+    float p = rings2_c * rings2_c;
+    float r = getR(v);
+    float theta = getTheta(v);
+    float t = r - 2 * p * trunc((r + p)/(2 * p)) + r * (1.0 - p);
+    return vec2(t * sin(theta), t * cos(theta)) * amount;
+}
+
+
 vec2 v_fan(vec2 v, float amount) {
     float t = PI * (fan_c * fan_c);
     float theta = getTheta(v);
@@ -333,6 +361,26 @@ vec2 v_fan(vec2 v, float amount) {
     return amount * vec2(x, y);
 }
 
+vec2 v_fan2(vec2 v, float amount) {
+    float p1 = PI * (fan2_x * fan2_x);
+    float p2 = fan2_y;
+
+    float theta = getTheta(v);
+    float r     = getR(v);
+
+    if (abs(p1) < 1e-8) {
+        return amount * v;
+    }
+
+    // t = θ + p2 − p1 * trunc( (2 θ p2) / p1 )
+    float t = theta + p2 - p1 * trunc((2.0 * theta * p2) / p1);
+
+    float a = (t > 0.5 * p1) ? (theta - 0.5 * p1) : (theta + 0.5 * p1);
+
+    // V25(x,y) = r * (sin(a), cos(a))
+    return amount * (r * vec2(sin(a), cos(a)));
+}
+
 vec2 v_blob(vec2 v, float amount) {
     float theta = getTheta(v);
     float r = getR(v);
@@ -340,7 +388,121 @@ vec2 v_blob(vec2 v, float amount) {
     return amount * vec2(cos(theta), sin(theta)) * (r * factor);
 }
 
+vec2 v_eyefish(vec2 v, float amount) {
+    float r = getR(v);
+    float i = 2.0/(r+1);
+    return vec2(i * v.x, i * v.y) * amount;
+}
 
+vec2 v_bubble(vec2 v, float amount) {
+    float r = getR(v);
+    float i = 4.0/((r * r) + 4.0);
+    return i * vec2(v.x, v.y) * amount;
+}
+
+vec2 v_cylinder(vec2 v, float amount) {
+    return amount * vec2(sin(v.x), sin(v.y));
+}
+
+vec2 v_perspective(vec2 v, float amount) {
+    float i = perspective_d / (perspective_d - v.y * sin(perspective_a));
+    return i * vec2(v.x, v.y * cos(perspective_a)) * amount;
+}
+
+vec2 v_noise(vec2 v, float amount) {
+    float psi1 = rand01();           
+    float psi2 = rand01();                 
+    float a    = 6.28318530718 * psi2;   
+
+    vec2 outv = psi1 * vec2(v.x * cos(a), v.y * sin(a));
+    return amount * outv;
+}
+
+vec2 v_julian(vec2 v, float amount)
+{
+    float power = julian_power;
+    float dist  = julian_dist;
+
+    if (abs(power) < 1e-6)
+        return amount * v;
+
+    float r = getR(v);
+    float theta = getTheta(v);
+
+    // number of branches
+    float abs_p = abs(power);
+
+    // p3 = trunc(|p1|Ψ)
+    float branch = floor(abs_p * rand01());
+
+    // t = (φ + 2πp3)/p1
+    float t = (theta + 6.28318530718 * branch) / power;
+
+    // r^(p2/p1)
+    float radius = amount * pow(r, dist / power);
+
+    return radius * vec2(cos(t), sin(t));
+}
+
+vec2 v_juliascope(vec2 v, float amount)
+{
+    float power = juliascope_power;
+    float dist  = juliascope_dist;
+
+    if (abs(power) < 1e-6)
+        return amount * v;
+
+    float r = getR(v);
+    float theta = getTheta(v);
+
+    float abs_p = abs(power);
+
+    // branch index: p3 = trunc(|p1|Ψ)
+    float branch = floor(abs_p * rand01());
+
+    // Λ ∈ {-1, +1}
+    float lambda = (rand01() < 0.5) ? -1.0 : 1.0;
+
+    // t = (Λφ + 2πp3)/p1
+    float t = (lambda * theta + 6.28318530718 * branch) / power;
+
+    // r^(p2/p1)
+    float radius = amount * pow(r, dist / power);
+
+    return radius * vec2(cos(t), sin(t));
+}
+
+vec2 v_blur(vec2 v, float amount)
+{
+    float psi1 = rand01();                 // radius in [0,1]
+    float psi2 = rand01();                 // angle fraction in [0,1]
+    float a    = 6.28318530718 * psi2;
+
+    // independent of input v by definition
+    return amount * (psi1 * vec2(cos(a), sin(a)));
+}
+
+
+vec2 d_pdj(vec2 v, float amount) {
+  float h = 0.1; // step
+  float sqrth = sqrt(h);
+  vec2 v1 = v_pdj(v, amount);
+  vec2 v2 = v_pdj(vec2(v.x+h, v.y+h), amount);
+  return vec2( (v2.x-v1.x)/sqrth, (v2.y-v1.y)/sqrth );
+}
+
+vec2 dejongsCurtains(vec2 v, float amount) {
+    float x = sin(dejong_a * v.y) - cos(dejong_b * v.x);
+    float y = sin(dejong_c * v.x) - cos(dejong_d * v.y);
+    return vec2(x * amount, y * amount);
+}
+
+
+vec2 leviathan(vec2 v, float amount) {
+     v = v_bent(v_horseshoe(v, 1.0), 1.0);
+    for (int j = 0; j < 16; j++) v += v_julia(v, 1.5);
+    return vec2(v.x * amount, v.y * amount); 
+}
 
 
 
@@ -373,16 +535,15 @@ void processOne(uint sid) {
     );
 
     // n iterations like your Processing loop (set to 3 here)
-    const int n = 3;
     for (int i = 0; i < n; i++) {
-
         float t = fGlobalTime;
         // gentle, slow rotation (period ~ 60–120s)
-        v.xy = rot(0.5 * sin(t * 0.5)) * v.xy; 
+        v.xy = rot(1.5 * sin(t * .5)) * v.xy; 
         
         
-        vec2 p1 = v_hyperbolic(v, 1.0) / v_disc(v, 1.5);
-        v = v_julia(p1, 1.);
+        vec2 p1 = v_polar(v, .5) + v_disc(v, .5);
+        vec2 p2 = v_rect(v, .5) + v_noise(v, .5);
+        vec2 v = v_polar(p1 / p2, 1.);
         
         v = wrap(v);
         v += 0.003 * randn2();

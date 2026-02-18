@@ -113,6 +113,9 @@ class App(mglw.WindowConfig):
         self.alpha = 0.06
         self.exposure = 0.015
 
+        # iterations
+        self.n = 1
+
         # Optional present shaping (only used if present shader declares these uniforms)
         self.density_scale = 1.0
         self.density_gamma = 0.6
@@ -122,9 +125,14 @@ class App(mglw.WindowConfig):
             "pdj_a": 0.1, "pdj_b": 1.9, "pdj_c": -0.8, "pdj_d": -1.2,
             "popcorn_c": 0.1, "popcorn_f": 0.09,
             "waves_b": 0.3, "waves_c": 0.5, "waves_e": 1.0, "waves_f": 1.0,
-            "rings_c": 0.9,
+            "rings_c": 0.9, "rings2_c": .5,
             "fan_c": 0.1, "fan_f": 0.4,
+            "fan2_x": 0.1, "fan2_y": 0.4,
             "blob_high": 0.9, "blob_low": 0.1, "blob_waves": 10.0,
+            "dejong_a": -.47, "dejong_b": 2.71, "dejong_c": -0.8, "dejong_d": -1.05,
+            "perspective_a": .5, "perspective_d": 2.0,
+            "julian_power": 2.0, "julian_dist": 1.0,
+            "juliascope_power": 2.0, "juliascope_dist": 1.0,
         }
 
         # GPU objects
@@ -141,6 +149,7 @@ class App(mglw.WindowConfig):
         self.h_y1 = None
         self.h_y2 = None
         self.h_marg = None
+        self.h_n = None
 
         self.r_res = None
         self.r_alpha = None
@@ -295,6 +304,8 @@ class App(mglw.WindowConfig):
         self.h_y2   = self.cs_hits.get("u_y2", None)
         self.h_marg = self.cs_hits.get("u_margin_frac", None)
 
+        self.h_n = self.cs_hits.get("n", None)
+
         self.r_res      = self.cs_resolve.get("u_resolution", None)
         self.r_alpha    = self.cs_resolve.get("u_alpha", None)
         self.r_exposure = self.cs_resolve.get("u_exposure", None)
@@ -389,6 +400,7 @@ class App(mglw.WindowConfig):
         _, self.exposure = imgui.slider_float(
             "exposure (resolve)", float(self.exposure), 0.0001, 0.5, format="%.6f"
         )
+        _, self.n = imgui.slider_int("n", int(self.n), 1, 20)
 
         imgui.separator()
         _, self.density_scale = imgui.slider_float(
@@ -416,6 +428,12 @@ class App(mglw.WindowConfig):
             _, self.p["pdj_c"] = imgui.slider_float("pdj_c", float(self.p["pdj_c"]), -5.0, 5.0)
             _, self.p["pdj_d"] = imgui.slider_float("pdj_d", float(self.p["pdj_d"]), -5.0, 5.0)
 
+        if imgui.collapsing_header("Dejong")[0]:
+            _, self.p["dejong_a"] = imgui.slider_float("dejong_a", float(self.p["dejong_a"]), -5.0, 5.0)
+            _, self.p["dejong_b"] = imgui.slider_float("dejong_b", float(self.p["dejong_b"]), -5.0, 5.0)
+            _, self.p["dejong_c"] = imgui.slider_float("dejong_c", float(self.p["dejong_c"]), -5.0, 5.0)
+            _, self.p["dejong_d"] = imgui.slider_float("dejong_d", float(self.p["dejong_d"]), -5.0, 5.0)
+
         if imgui.collapsing_header("Popcorn")[0]:
             _, self.p["popcorn_c"] = imgui.slider_float("popcorn_c", float(self.p["popcorn_c"]), 0.0, 1.0)
             _, self.p["popcorn_f"] = imgui.slider_float("popcorn_f", float(self.p["popcorn_f"]), 0.0, 1.0)
@@ -426,16 +444,34 @@ class App(mglw.WindowConfig):
             _, self.p["waves_e"] = imgui.slider_float("waves_e", float(self.p["waves_e"]), -2.0, 2.0)
             _, self.p["waves_f"] = imgui.slider_float("waves_f", float(self.p["waves_f"]), 0.05, 3.0)
 
-        if imgui.collapsing_header("Rings / Fan / Blob")[0]:
+        if imgui.collapsing_header("Rings")[0]:
             _, self.p["rings_c"] = imgui.slider_float("rings_c", float(self.p["rings_c"]), 0.01, 3.0)
+            _, self.p["rings2_c"] = imgui.slider_float("rings2_c", float(self.p["rings2_c"]), 0.01, 3.0)
+        
+        if imgui.collapsing_header("Fan")[0]:
             _, self.p["fan_c"] = imgui.slider_float("fan_c", float(self.p["fan_c"]), 0.0, 2.0)
             _, self.p["fan_f"] = imgui.slider_float("fan_f", float(self.p["fan_f"]), 0.0, 4.0)
+            _, self.p["fan2_x"] = imgui.slider_float("fan2_x", float(self.p["fan2_x"]), 0.0, 4.0)
+            _, self.p["fan2_y"] = imgui.slider_float("fan2_y", float(self.p["fan2_y"]), 0.0, 4.0)
+        
+        if imgui.collapsing_header("blob")[0]:
             _, self.p["blob_high"] = imgui.slider_float("blob_high", float(self.p["blob_high"]), 0.0, 2.0)
             _, self.p["blob_low"] = imgui.slider_float("blob_low", float(self.p["blob_low"]), 0.0, 2.0)
             _, self.p["blob_waves"] = imgui.slider_float("blob_waves", float(self.p["blob_waves"]), 0.0, 50.0)
 
-        imgui.end()
+        if imgui.collapsing_header("perspective")[0]:
+            _, self.p["perspective_a"] = imgui.slider_float("perspective_a", float(self.p["perspective_a"]), -1.55, 1.55)
+            _, self.p["perspective_d"] = imgui.slider_float("perspective_d", float(self.p["perspective_d"]), -6.0, 6.0)
+        
+        if imgui.collapsing_header("julian")[0]:
+            _, self.p["julian_power"] = imgui.slider_float("julian_power", float(self.p["julian_power"]), -8.0, 8.0)
+            _, self.p["julian_dist"] = imgui.slider_float("julian_dist", float(self.p["julian_dist"]), -4.0, 4.0)
+        
+        if imgui.collapsing_header("juliascope")[0]:
+            _, self.p["juliascope_power"] = imgui.slider_float("juliascope_power", float(self.p["juliascope_power"]), -8.0, 8.0)
+            _, self.p["juliascope_dist"] = imgui.slider_float("juliascope_dist", float(self.p["juliascope_dist"]), -4.0, 4.0)
 
+        imgui.end()
     # -------------------- render loop --------------------
     def on_render(self, time_s: float, frame_time: float):
         # Hot reload shaders
@@ -458,6 +494,8 @@ class App(mglw.WindowConfig):
             self.h_time.value = float(time_s)
         if self.h_res is not None:
             self.h_res.value = (float(w), float(h))
+        if self.h_n is not None:
+            self.h_n.value = int(self.n)
 
         if self.h_x1 is not None: self.h_x1.value = float(X1)
         if self.h_x2 is not None: self.h_x2.value = float(X2)
