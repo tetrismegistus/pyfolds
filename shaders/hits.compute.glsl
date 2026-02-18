@@ -81,6 +81,17 @@ uniform float julian_dist;
 uniform float juliascope_power;
 uniform float juliascope_dist;    
 
+uniform float radialblur_angle;
+
+uniform float pie_slices;   
+uniform float pie_rotation;  
+uniform float pie_thickness;   
+
+uniform float ngon_power;    // p1
+uniform float ngon_sides;    // used to compute p2
+uniform float ngon_corners;  // p3
+uniform float ngon_circle;   // p4
+
 
 // --- helpers matching your Processing MIN/MAX ---
 float domainW() { return u_x2 - u_x1; }
@@ -95,17 +106,7 @@ float randn() {
 }
 vec2 randn2() { return vec2(randn(), randn()); }
 
-// Processing-style mod wrap into [min,max)
-float modWrap1(float x, float a, float b) {
-    float w = b - a;
-    x = mod(x - a, w);
-    if (x < 0.0) x += w;
-    return x + a;
-}
-vec2 modWrap(vec2 v) {
-    return vec2(modWrap1(v.x, u_x1, u_x2),
-                modWrap1(v.y, u_y1, u_y2));
-}
+
 
 // --- transforms used by wraps ---
 vec2 v_sinusoidal_wrap(vec2 v, float amplitude) {
@@ -120,35 +121,9 @@ vec2 v_spherical_wrap(vec2 p, float amount) {
     return p * (amount * inv);
 }
 
-// --- main wrap dispatcher ---
-vec2 wrap(vec2 v) {
-    if (u_wrap_mode == WRAP_NO_WRAP) {
-        return v;
-    }
-
-    if (u_wrap_mode == WRAP_MOD) {
-        return modWrap(v);
-    }
-
-    // amplitude/amount = (MAX_X - MIN_X)/2
-    float amp = 0.5 * domainW();
-
-    if (u_wrap_mode == WRAP_SINUSOIDAL) {
-        vec2 vv = v_sinusoidal_wrap(v, amp);
-        return vv; // Processing does NOT mod-wrap after sinusoidal
-    }
-
-    // WRAP_SPHERICAL
-    vec2 vv = v_spherical_wrap(v, amp);
-    return modWrap(vv); // Processing DOES mod-wrap after spherical
-}
-
-
 vec2 v_sinusoidal(vec2 v, float amount) {
     return vec2(amount * sin(v.x), amount * sin(v.y));
 }
-
-
 
 vec2 v_linear(vec2 v, float amount) {
     return amount * v;
@@ -226,7 +201,6 @@ vec2 v_julia(vec2 v, float amount) {
     float r = amount * sqrt(getR(v));
     float theta = 0.5 * getTheta(v);
 
-    // draw from the same deterministic RNG stream as everything else
     theta += (rand01() < 0.5) ? 0.0 : PI;
 
     return r * vec2(cos(theta), sin(theta));
@@ -372,12 +346,8 @@ vec2 v_fan2(vec2 v, float amount) {
         return amount * v;
     }
 
-    // t = θ + p2 − p1 * trunc( (2 θ p2) / p1 )
     float t = theta + p2 - p1 * trunc((2.0 * theta * p2) / p1);
-
     float a = (t > 0.5 * p1) ? (theta - 0.5 * p1) : (theta + 0.5 * p1);
-
-    // V25(x,y) = r * (sin(a), cos(a))
     return amount * (r * vec2(sin(a), cos(a)));
 }
 
@@ -428,17 +398,9 @@ vec2 v_julian(vec2 v, float amount)
 
     float r = getR(v);
     float theta = getTheta(v);
-
-    // number of branches
     float abs_p = abs(power);
-
-    // p3 = trunc(|p1|Ψ)
     float branch = floor(abs_p * rand01());
-
-    // t = (φ + 2πp3)/p1
     float t = (theta + 6.28318530718 * branch) / power;
-
-    // r^(p2/p1)
     float radius = amount * pow(r, dist / power);
 
     return radius * vec2(cos(t), sin(t));
@@ -456,17 +418,9 @@ vec2 v_juliascope(vec2 v, float amount)
     float theta = getTheta(v);
 
     float abs_p = abs(power);
-
-    // branch index: p3 = trunc(|p1|Ψ)
     float branch = floor(abs_p * rand01());
-
-    // Λ ∈ {-1, +1}
     float lambda = (rand01() < 0.5) ? -1.0 : 1.0;
-
-    // t = (Λφ + 2πp3)/p1
     float t = (lambda * theta + 6.28318530718 * branch) / power;
-
-    // r^(p2/p1)
     float radius = amount * pow(r, dist / power);
 
     return radius * vec2(cos(t), sin(t));
@@ -477,11 +431,80 @@ vec2 v_blur(vec2 v, float amount)
     float psi1 = rand01();                 // radius in [0,1]
     float psi2 = rand01();                 // angle fraction in [0,1]
     float a    = 6.28318530718 * psi2;
-
-    // independent of input v by definition
     return amount * (psi1 * vec2(cos(a), sin(a)));
 }
 
+vec2 v_gaussian(vec2 v, float amount)
+{
+    float r =
+        rand01() +
+        rand01() +
+        rand01() +
+        rand01() - 2.0;
+
+    float a = 6.28318530718 * rand01();
+    return amount * (r * vec2(cos(a), sin(a)));
+}
+
+vec2 v_radialblur(vec2 v, float amount)
+{
+    float angle = radialblur_angle * 1.57079632679; // π/2
+
+    // gaussian approx
+    float g =
+        rand01() +
+        rand01() +
+        rand01() +
+        rand01() - 2.0;
+
+    float t1 = amount * g;
+    float t2 = getTheta(v) + t1 * sin(angle);
+    float t3 = t1 * cos(angle) - 1.0;
+
+    float r = getR(v);
+
+    vec2 outv = vec2(
+        r * cos(t2) + t3 * v.x,
+        r * sin(t2) + t3 * v.y
+    );
+
+    return outv / amount;
+}
+
+vec2 v_pie(vec2 v, float amount)
+{
+    float slices    = max(1.0, floor(pie_slices));
+    float rotation  = pie_rotation;
+    float thickness = pie_thickness;
+
+    float t1 = floor(rand01() * slices + 0.5);
+    float t2 = rotation + (6.28318530718 / slices) * (t1 + rand01() * thickness);
+    float r = rand01();
+
+    return amount * (r * vec2(cos(t2), sin(t2)));
+}
+
+vec2 v_ngon(vec2 v, float amount)
+{
+    float power   = ngon_power;
+    float sides   = max(1.0, floor(ngon_sides + 0.5));
+    float corners = ngon_corners;
+    float circle  = ngon_circle;
+
+    float r = getR(v);
+    if (r < 1e-6) return vec2(0.0);
+
+    float phi = getTheta(v);
+
+    float p2 = 6.28318530718 / sides;
+
+    float t3 = phi - p2 * floor(phi / p2);
+    float t4 = (t3 > p2 * 0.5) ? t3 : t3 - p2;
+
+    float k = (corners * (1.0 / cos(t4) - 1.0) + circle) / pow(r, power);
+
+    return amount * k * v;
+}
 
 vec2 d_pdj(vec2 v, float amount) {
   float h = 0.1; // step
@@ -505,6 +528,40 @@ vec2 leviathan(vec2 v, float amount) {
 }
 
 
+// Processing-style mod wrap into [min,max)
+float modWrap1(float x, float a, float b) {
+    float w = b - a;
+    x = mod(x - a, w);
+    if (x < 0.0) x += w;
+    return x + a;
+}
+vec2 modWrap(vec2 v) {
+    return vec2(modWrap1(v.x, u_x1, u_x2),
+                modWrap1(v.y, u_y1, u_y2));
+}
+
+// --- main wrap dispatcher ---
+vec2 wrap(vec2 v) {
+    if (u_wrap_mode == WRAP_NO_WRAP) {
+        return v;
+    }
+
+    if (u_wrap_mode == WRAP_MOD) {
+        return modWrap(v);
+    }
+
+    // amplitude/amount = (MAX_X - MIN_X)/2
+    float amp = 0.5 * domainW();
+
+    if (u_wrap_mode == WRAP_SINUSOIDAL) {
+        vec2 vv = v_sinusoidal_wrap(v, amp);
+        return vv; // Processing does NOT mod-wrap after sinusoidal
+    }
+
+    // WRAP_SPHERICAL
+    vec2 vv = v_spherical_wrap(v, amp);
+    return modWrap(vv); // Processing DOES mod-wrap after spherical
+}
 
 float map01(float x, float a, float b) { return (x - a) / (b - a); }
 
@@ -542,8 +599,8 @@ void processOne(uint sid) {
         
         
         vec2 p1 = v_polar(v, .5) + v_disc(v, .5);
-        vec2 p2 = v_rect(v, .5) + v_noise(v, .5);
-        vec2 v = v_polar(p1 / p2, 1.);
+        vec2 p2 = v_pie(v, 1.5) * v_rings(v, 1.0);
+        vec2 v = v_ngon(v_rings(v_pie(v, 1.0), 1.0), 1.0);
         
         v = wrap(v);
         v += 0.003 * randn2();
@@ -560,8 +617,6 @@ void main() {
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
     if (gid.x >= int(v2Resolution.x) || gid.y >= int(v2Resolution.y)) return;
 
-    // One deterministic stream per invocation. You can scale this up later by launching
-    // fewer invocations and looping many particles per invocation.
     uint sid = uint(gid.x + gid.y * int(v2Resolution.x)) + 1235125u;
     processOne(sid);
 }

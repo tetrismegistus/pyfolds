@@ -133,6 +133,9 @@ class App(mglw.WindowConfig):
             "perspective_a": .5, "perspective_d": 2.0,
             "julian_power": 2.0, "julian_dist": 1.0,
             "juliascope_power": 2.0, "juliascope_dist": 1.0,
+            "radialblur_angle": .5,
+            "pie_slices": 6.0, "pie_rotation": 0.0, "pie_thickness": 0.5,
+            "ngon_power": 2.0, "ngon_sides": 5.0,"ngon_corners": 1.0, "ngon_circle": 1.0,
         }
 
         # GPU objects
@@ -471,6 +474,19 @@ class App(mglw.WindowConfig):
             _, self.p["juliascope_power"] = imgui.slider_float("juliascope_power", float(self.p["juliascope_power"]), -8.0, 8.0)
             _, self.p["juliascope_dist"] = imgui.slider_float("juliascope_dist", float(self.p["juliascope_dist"]), -4.0, 4.0)
 
+        if imgui.collapsing_header("radialblur")[0]:
+            _, self.p["radialblur_angle"] = imgui.slider_float("radialblur_angle", float(self.p["radialblur_angle"]), -2.0, 2.0)
+
+        if imgui.collapsing_header("pie")[0]:
+            _, self.p["pie_slices"] = imgui.slider_float("pie_slices", float(self.p["pie_slices"]), 1.0, 16.0)
+            _, self.p["pie_rotation"] = imgui.slider_float("pie_rotation", float(self.p["pie_rotation"]), -3.14159265, 3.14159265)
+            _, self.p["pie_thickness"] = imgui.slider_float("pie_thickness", float(self.p["pie_thickness"]), 0.0, 1.0)
+
+        if imgui.collapsing_header("ngon")[0]:
+            _, self.p["ngon_power"] = imgui.slider_float("ngon_power", float(self.p["ngon_power"]), -4.0, 4.0)
+            _, self.p["ngon_sides"] = imgui.slider_float("ngon_sides", float(self.p["ngon_sides"]), 1.0, 12.0)
+            _, self.p["ngon_corners"] = imgui.slider_float("ngon_corners", float(self.p["ngon_corners"]), 0.0, 4.0)
+            _, self.p["ngon_circle"] = imgui.slider_float("ngon_circle", float(self.p["ngon_circle"]), 0.0, 4.0)
         imgui.end()
     # -------------------- render loop --------------------
     def on_render(self, time_s: float, frame_time: float):
