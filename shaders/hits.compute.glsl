@@ -38,7 +38,10 @@ uint hashi(uint x) {
 float getTheta(vec2 v) { return atan(v.x, v.y); }
 float getR(vec2 v) { return length(v); }
 float rcp_safe(float x) { return 1.0 / max(abs(x), 1e-10); }
-
+float log10(float x)
+{
+    return log(x) * 0.4342944819032518; // 1 / ln(10)
+}
 // ---- tunable parameters (set from host, or leave defaults if you hardcode) ----
 uniform float pdj_a;
 uniform float pdj_b;
@@ -87,11 +90,18 @@ uniform float pie_slices;
 uniform float pie_rotation;  
 uniform float pie_thickness;   
 
-uniform float ngon_power;    // p1
-uniform float ngon_sides;    // used to compute p2
-uniform float ngon_corners;  // p3
-uniform float ngon_circle;   // p4
+uniform float ngon_power;    
+uniform float ngon_sides;  
+uniform float ngon_corners;  
+uniform float ngon_circle;  
 
+uniform float curl_c1;
+uniform float curl_c2;
+
+uniform float rectangles_x;
+uniform float rectangles_y;
+
+uniform float arch_span;  
 
 // --- helpers matching your Processing MIN/MAX ---
 float domainW() { return u_x2 - u_x1; }
@@ -106,7 +116,11 @@ float randn() {
 }
 vec2 randn2() { return vec2(randn(), randn()); }
 
-
+float rand01_open() {
+    // maps uint in [0, 0xffffffff] -> float in (0,1)
+    float u = hash_f();               // [0,1]
+    return (u * (4294967295.0 - 2.0) + 1.0) / 4294967295.0; // (0,1)
+}
 
 // --- transforms used by wraps ---
 vec2 v_sinusoidal_wrap(vec2 v, float amplitude) {
@@ -173,6 +187,16 @@ vec2 v_rect(vec2 v, float amount) {
     float x = a * (a * (2.0 * floor(v.x / a) + 1.0) - v.x);
     float y = a * (a * (2.0 * floor(v.y / a) + 1.0) - v.y);
     return vec2(x, y);
+}
+
+vec2 v_rectangles(vec2 v, float amount) {
+    float px = max(abs(rectangles_x), 1e-6);
+    float py = max(abs(rectangles_y), 1e-6);
+
+    float x = ( (2.0 * floor(v.x / px) + 1.0) * px ) - v.x;
+    float y = ( (2.0 * floor(v.y / py) + 1.0) * py ) - v.y;
+
+    return amount * vec2(x, y);
 }
 
 vec2 v_swirl(vec2 v, float amount) {
@@ -506,6 +530,119 @@ vec2 v_ngon(vec2 v, float amount)
     return amount * k * v;
 }
 
+vec2 v_curl(vec2 v, float amount) {
+    float t1 = 1.0 + curl_c1 * v.x + curl_c2 * (v.x * v.x - v.y * v.y);
+    float t2 = curl_c1 * v.y + 2.0 * curl_c2 * v.x * v.y ;
+    float t3 = 1.0 / (t1 * t1 + t2 * t2);
+    return t3 * vec2(v.x * t1 + v.y * t2, v.y * t1 - v.x * t2) * amount;
+}
+
+vec2 v_arch(vec2 v, float amount)
+{
+    float psi = rand01();
+
+    float t = 3.141592653589793 * psi * arch_span;
+
+    float s = sin(t);
+    float c = cos(t);
+
+    // keep asymptotes but avoid NaN
+    c = (abs(c) < 1e-6) ? sign(c) * 1e-6 : c;
+
+    vec2 outv = vec2(s, (s * s) / c);
+
+    return amount * outv;
+}
+
+vec2 v_tangent(vec2 v, float amount) {
+    return amount * vec2(sin(v.x)/cos(v.y), tan(v.y));
+}
+
+vec2 v_square(vec2 v, float amount) {
+    float phi1 = rand01_open();
+    float phi2 = rand01_open();
+    return amount * vec2(phi1 - .5, phi2 - .5);
+}
+
+vec2 v_rays(vec2 v, float amount)
+{
+    float r2 = dot(v, v);
+    if (r2 < 1e-10) return vec2(0.0);
+
+    float psi = clamp(rand01(), 1e-7, 1.0 - 1e-7);
+
+    float t = tan(3.141592653589793 * psi);
+
+    vec2 outv = (t / r2) * vec2(cos(v.x), sin(v.y));
+
+    return amount * outv;
+}
+
+vec2 v_blade(vec2 v, float amount)
+{
+    float psi = rand01(); 
+    float r = getR(v);    
+
+    float t = psi * r * amount;
+
+    float c = cos(t);
+    float s = sin(t);
+
+    vec2 outv = v.x * vec2(c + s, c - s);
+    return amount * outv;
+}
+
+vec2 v_secant(vec2 v, float amount)
+{
+    float r = length(v);
+
+    float t = amount * r;
+    float c = cos(t);
+
+    // asymptotes are intentional but avoid NaN
+    if (abs(c) < 1e-6) c = sign(c) * 1e-6;
+
+    vec2 outv = vec2(
+        v.x,
+        1.0 / (amount * c)
+    );
+
+    return amount * outv;
+}
+
+vec2 v_twintian(vec2 v, float amount)
+{
+    float psi = rand01();
+    float r = getR(v);
+
+    float a = psi * r * amount;
+
+    float s = sin(a);
+    float s2 = s * s;
+
+    // avoid log10(0)
+    s2 = max(s2, 1e-12);
+
+    float t = log10(s2) + cos(a);
+
+    vec2 outv = v.x * vec2(
+        t,
+        t - 3.141592653589793 * s
+    );
+
+    return amount * outv;
+}
+
+vec2 v_cross(vec2 v, float amount)
+{
+    float d = v.x * v.x - v.y * v.y;
+    d = max(abs(d), 1e-6);   // avoid division by zero
+
+    vec2 outv = v / d;
+    return amount * outv;
+}
+
+
 vec2 d_pdj(vec2 v, float amount) {
   float h = 0.1; // step
   float sqrth = sqrt(h);
@@ -526,7 +663,6 @@ vec2 leviathan(vec2 v, float amount) {
     for (int j = 0; j < 16; j++) v += v_julia(v, 1.5);
     return vec2(v.x * amount, v.y * amount); 
 }
-
 
 // Processing-style mod wrap into [min,max)
 float modWrap1(float x, float a, float b) {
@@ -595,13 +731,10 @@ void processOne(uint sid) {
     for (int i = 0; i < n; i++) {
         float t = fGlobalTime;
         // gentle, slow rotation (period ~ 60–120s)
-        v.xy = rot(1.5 * sin(t * .5)) * v.xy; 
+        v.xy = rot(.3 * sin(t * .3)) * v.xy; 
         
-        
-        vec2 p1 = v_polar(v, .5) + v_disc(v, .5);
-        vec2 p2 = v_pie(v, 1.5) * v_rings(v, 1.0);
-        vec2 v = v_ngon(v_rings(v_pie(v, 1.0), 1.0), 1.0);
-        
+        vec2 p1 = v_cross(v_square(v, .5), .5);
+        vec2 v = p1;
         v = wrap(v);
         v += 0.003 * randn2();
 
@@ -612,6 +745,40 @@ void processOne(uint sid) {
         }
     }
 }
+
+
+void processTwo(uint sid) {
+    // seed per "particle"
+    seed = sid;
+
+    // start in domain like Processing would
+    vec2 v = vec2(
+        mix(u_x1, u_x2, rand01()),
+        mix(u_y1, u_y2, rand01())
+    );
+
+    // n iterations like your Processing loop (set to 3 here)
+    for (int i = 0; i < n; i++) {
+        float t = fGlobalTime;
+        // gentle, slow rotation (period ~ 60–120s)
+        v.xy = rot(.3 * sin(t * .3)) * v.xy; 
+        
+        
+        vec2 p2 = leviathan(v, 1.0);
+        vec2 v = v_disc(p2, 1.0);
+        v = wrap(v);
+        v += 0.003 * randn2();
+
+        ivec2 pix = ivec2(domainToPixel(v));
+        if (pix.x >= 0 && pix.x < int(v2Resolution.x) &&
+            pix.y >= 0 && pix.y < int(v2Resolution.y)) {
+            imageAtomicAdd(hitsImg, pix, 1u);
+        }
+    }
+}
+
+
+
 
 void main() {
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);

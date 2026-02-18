@@ -136,6 +136,9 @@ class App(mglw.WindowConfig):
             "radialblur_angle": .5,
             "pie_slices": 6.0, "pie_rotation": 0.0, "pie_thickness": 0.5,
             "ngon_power": 2.0, "ngon_sides": 5.0,"ngon_corners": 1.0, "ngon_circle": 1.0,
+            "curl_c1": 0.1, "curl_c2": 0.0,
+            "rectangles_x": 1.0, "rectangles_y": 1.0,
+            "arch_span": 1.0
         }
 
         # GPU objects
@@ -487,6 +490,17 @@ class App(mglw.WindowConfig):
             _, self.p["ngon_sides"] = imgui.slider_float("ngon_sides", float(self.p["ngon_sides"]), 1.0, 12.0)
             _, self.p["ngon_corners"] = imgui.slider_float("ngon_corners", float(self.p["ngon_corners"]), 0.0, 4.0)
             _, self.p["ngon_circle"] = imgui.slider_float("ngon_circle", float(self.p["ngon_circle"]), 0.0, 4.0)
+        
+        if imgui.collapsing_header("curl")[0]:
+            _, self.p["curl_c1"] = imgui.slider_float("curl_c1", float(self.p["curl_c1"]), -2.0, 2.0)
+            _, self.p["curl_c2"] = imgui.slider_float("curl_c2", float(self.p["curl_c2"]), -2.0, 2.0)
+
+        if imgui.collapsing_header("rectangles")[0]:
+            _, self.p["rectangles_x"] = imgui.slider_float("rectangles_x", float(self.p["rectangles_x"]), 0.05, 4.0)
+            _, self.p["rectangles_y"] = imgui.slider_float("rectangles_y", float(self.p["rectangles_y"]), 0.05, 4.0)
+        if imgui.collapsing_header("arch")[0]:
+            _, self.p["arch_span"] = imgui.slider_float("arch_span", float(self.p["arch_span"]), 0.0, 6.0)
+
         imgui.end()
     # -------------------- render loop --------------------
     def on_render(self, time_s: float, frame_time: float):
