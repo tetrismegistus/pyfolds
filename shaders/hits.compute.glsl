@@ -664,6 +664,11 @@ vec2 leviathan(vec2 v, float amount) {
     return vec2(v.x * amount, v.y * amount); 
 }
 
+vec2 djinnhourglass(vec2 v, float amount) {
+    return v_julia(v_polar(v, amount) + v_disc(v, amount), amount) * amount;  
+}
+
+
 // Processing-style mod wrap into [min,max)
 float modWrap1(float x, float a, float b) {
     float w = b - a;
@@ -717,6 +722,53 @@ vec2 domainToPixel(vec2 v) {
 
 mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c,-s,s,c); }
 
+
+#define PI 3.1415926535897932384626433832795
+
+// Wikipedia "kissing ratio" / optimal r for regular N-gon packing
+// (this is the step fraction along the segment: v_next = mix(v, vertex, r_opt))
+float r_opt_ngon(int N)
+{
+    // N must be >= 3
+    float n = float(N);
+    int m = N % 4;
+
+    if (m == 0) {
+        // 1 / (1 + tan(pi / N))
+        return 1.0 / (1.0 + tan(PI / n));
+    } else if (m == 2) {
+        // 1 / (1 + sin(pi / N))
+        return 1.0 / (1.0 + sin(PI / n));
+    } else {
+        // m == 1 or 3:
+        // 1 / (1 + 2 sin(pi / (2N)))
+        return 1.0 / (1.0 + 2.0 * sin(PI / (2.0 * n)));
+    }
+}
+
+// Regular N-gon vertex on a circle of radius R, centered at origin.
+// rot is an angle offset (radians) so you can align like your square corners.
+vec2 ngon_vertex(int k, int N, float R, float rot)
+{
+    float a = rot + 2.0 * PI * (float(k) / float(N));
+    return R * vec2(cos(a), sin(a));
+}
+
+// One chaos-game step for an N-gon.
+// rand01() should return uniform [0,1).
+vec2 chaos_step_ngon(vec2 v, int N, float R, float rot, float step_r)
+{
+    // choose vertex uniformly
+    int k = int(floor(rand01() * float(N)));
+    k = clamp(k, 0, N - 1);
+
+    vec2 target = ngon_vertex(k, N, R, rot);
+
+    // move step_r fraction toward it
+    return mix(v, target, step_r);
+}
+
+
 void processOne(uint sid) {
     // seed per "particle"
     seed = sid;
@@ -730,11 +782,30 @@ void processOne(uint sid) {
     // n iterations like your Processing loop (set to 3 here)
     for (int i = 0; i < n; i++) {
         float t = fGlobalTime;
-        // gentle, slow rotation (period ~ 60–120s)
-        v.xy = rot(.3 * sin(t * .3)) * v.xy; 
         
-        vec2 p1 = v_cross(v_square(v, .5), .5);
-        vec2 v = p1;
+        // ----------- affine pre-transform -----------
+        v.xy = rot(.3 * sin(t * .3)) * v.xy; 
+        mat2 A = mat2(
+            1.5, 0.0,
+            0.0, 0.6
+        );
+
+        vec2 b = vec2(20.);
+        v = A * v + b;
+        
+        // -----------  variation -----------
+        //v = v_popcorn(v_julian(v, 1.0) + v_disc(v, 2.0), 1.0);
+        //v = v_julian(v, 1.1) + 1.5 * v_horseshoe(v, .25);
+        //v  = v_pie(v, 1.5) - .5 * v_rectangles(v, .5);
+        v = dejongsCurtains(v, 1.4);
+        // ----------- affin-e post-transform -----------
+        mat2 postA = mat2(
+            1., -.3,
+            -0.3, 1.
+        );
+
+        v = postA * v;
+
         v = wrap(v);
         v += 0.003 * randn2();
 
@@ -747,8 +818,9 @@ void processOne(uint sid) {
 }
 
 
-void processTwo(uint sid) {
-    // seed per "particle"
+
+void IFS(uint sid)
+{
     seed = sid;
 
     // start in domain like Processing would
@@ -757,15 +829,33 @@ void processTwo(uint sid) {
         mix(u_y1, u_y2, rand01())
     );
 
-    // n iterations like your Processing loop (set to 3 here)
     for (int i = 0; i < n; i++) {
+
         float t = fGlobalTime;
-        // gentle, slow rotation (period ~ 60–120s)
-        v.xy = rot(.3 * sin(t * .3)) * v.xy; 
+        float period = 30.0;
+        float base = 2.0 * PI * fGlobalTime / period;
+
+        // ----- classic IFS mixture: choose ONE transform -----
+        int   N   = 6;
+    
+        float R   = 1.4142135623730951; //sqrt(2)
+        //float R   = 2.; //sqrt(2)
+        float rot = 2.0 * PI * fGlobalTime / period;
+
+        v = leviathan(v, 1.0);
+        float step_r = r_opt_ngon(N) * .9; 
+        for (int j = 0; j < 1; j++) {
+            v = chaos_step_ngon(v, N, R, rot, step_r);
+        }
         
-        
-        vec2 p2 = leviathan(v, 1.0);
-        vec2 v = v_disc(p2, 1.0);
+        v = v_disc(v, 2.); 
+        // ----- post -----
+        mat2 scale = mat2(
+                1.1, 0,
+                0, 1.1
+                );
+        //v *= scale;
+
         v = wrap(v);
         v += 0.003 * randn2();
 
@@ -785,5 +875,6 @@ void main() {
     if (gid.x >= int(v2Resolution.x) || gid.y >= int(v2Resolution.y)) return;
 
     uint sid = uint(gid.x + gid.y * int(v2Resolution.x)) + 1235125u;
-    processOne(sid);
+    //processOne(sid);
+    IFS(sid);
 }

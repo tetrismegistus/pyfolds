@@ -5,8 +5,8 @@ layout (location = 0) out vec4 out_color;
 uniform sampler2D u_accum;
 
 // artistic controls
-uniform float u_density_scale = 1.2;   // overall darkness
-uniform float u_density_gamma = 1.5;   // compress dynamic range
+uniform float u_density_scale;   // overall darkness
+uniform float u_density_gamma ;   // compress dynamic range
 
 const vec3 PAPER = vec3(0.9373, 0.9294, 0.9098);
 const vec3 INK   = vec3(0.6549, 0.7529, 0.8588);
