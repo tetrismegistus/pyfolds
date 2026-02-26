@@ -34,12 +34,14 @@ WRAP_NO_WRAP    = 0
 WRAP_SINUSOIDAL = 1
 WRAP_SPHERICAL  = 2
 WRAP_MOD        = 3
+WRAP_DISC       = 4
 
 WRAP_MODE_LABELS = {
     WRAP_NO_WRAP:    "NO_WRAP",
     WRAP_SINUSOIDAL: "SINUSOIDAL",
     WRAP_SPHERICAL:  "SPHERICAL",
     WRAP_MOD:        "MOD",
+    WRAP_DISC:       "DISC"
 }
 
 def wrap_mode_label(mode: int) -> str:
@@ -378,7 +380,7 @@ class App(mglw.WindowConfig):
         elif key == self.wnd.keys.S:
             self.request_capture(out_dir="saves", prefix="frame")
         elif key == self.wnd.keys.W:
-            self.wrap_mode = (self.wrap_mode + 1) % 4
+            self.wrap_mode = (self.wrap_mode + 1) % 5
             print(f"wrap_mode: {self.wrap_mode} ({wrap_mode_label(self.wrap_mode)})")
         elif key == self.wnd.keys.TAB:
             self.show_ui = not self.show_ui

@@ -9,6 +9,7 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 #define WRAP_SINUSOIDAL     1
 #define WRAP_SPHERICAL      2
 #define WRAP_MOD            3
+#define WRAP_DISC           4
 
 uniform int u_wrap_mode;   // 0..3
 
@@ -124,7 +125,6 @@ float rand01_open() {
 
 // --- transforms used by wraps ---
 vec2 v_sinusoidal_wrap(vec2 v, float amplitude) {
-    // Processing: sin(v.x)*amplitude, sin(v.y)*amplitude
     return vec2(sin(v.x), sin(v.y)) * amplitude;
 }
 
@@ -133,6 +133,15 @@ vec2 v_spherical_wrap(vec2 p, float amount) {
     float r2 = dot(p, p);
     float inv = 1.0 / max(r2, 1e-12);   // avoid blowups at ~0
     return p * (amount * inv);
+}
+
+vec2 v_disc_wrap(vec2 p, float amount) {
+    // Processing: r = 1/pow(getR(p),2)
+    float theta = getTheta(p);
+    float r = getR(p);
+    float x = (theta / PI) * sin(PI * r);
+    float y = (theta / PI) * cos(PI * r);
+    return amount * vec2(x, y);
 }
 
 vec2 v_sinusoidal(vec2 v, float amount) {
@@ -669,6 +678,7 @@ vec2 djinnhourglass(vec2 v, float amount) {
 }
 
 
+
 // Processing-style mod wrap into [min,max)
 float modWrap1(float x, float a, float b) {
     float w = b - a;
@@ -682,26 +692,32 @@ vec2 modWrap(vec2 v) {
 }
 
 // --- main wrap dispatcher ---
-vec2 wrap(vec2 v) {
-    if (u_wrap_mode == WRAP_NO_WRAP) {
+vec2 wrap(vec2 v, int mode) {
+    if (mode == WRAP_NO_WRAP) {
         return v;
     }
 
-    if (u_wrap_mode == WRAP_MOD) {
+    if (mode == WRAP_MOD) {
         return modWrap(v);
     }
 
     // amplitude/amount = (MAX_X - MIN_X)/2
     float amp = 0.5 * domainW();
 
-    if (u_wrap_mode == WRAP_SINUSOIDAL) {
+    if (mode == WRAP_SINUSOIDAL) {
         vec2 vv = v_sinusoidal_wrap(v, amp);
-        return vv; // Processing does NOT mod-wrap after sinusoidal
+        return vv; 
     }
 
-    // WRAP_SPHERICAL
-    vec2 vv = v_spherical_wrap(v, amp);
-    return modWrap(vv); // Processing DOES mod-wrap after spherical
+    if (mode == WRAP_SPHERICAL) {
+
+        // WRAP_SPHERICAL
+        vec2 vv = v_spherical_wrap(v, amp);
+        return modWrap(vv); 
+    }
+    vec2 vv = v_disc_wrap(v, amp);
+    return modWrap(vv);
+
 }
 
 float map01(float x, float a, float b) { return (x - a) / (b - a); }
@@ -769,105 +785,213 @@ vec2 chaos_step_ngon(vec2 v, int N, float R, float rot, float step_r)
 }
 
 
-void processOne(uint sid) {
-    // seed per "particle"
-    seed = sid;
 
-    // start in domain like Processing would
-    vec2 v = vec2(
-        mix(u_x1, u_x2, rand01()),
-        mix(u_y1, u_y2, rand01())
-    );
+layout(r32ui, binding=0) uniform uimage2D hitsA;
 
-    // n iterations like your Processing loop (set to 3 here)
-    for (int i = 0; i < n; i++) {
-        float t = fGlobalTime;
-        
-        // ----------- affine pre-transform -----------
-        v.xy = rot(.3 * sin(t * .3)) * v.xy; 
-        mat2 A = mat2(
-            1.5, 0.0,
-            0.0, 0.6
-        );
-
-        vec2 b = vec2(20.);
-        v = A * v + b;
-        
-        // -----------  variation -----------
-        //v = v_popcorn(v_julian(v, 1.0) + v_disc(v, 2.0), 1.0);
-        //v = v_julian(v, 1.1) + 1.5 * v_horseshoe(v, .25);
-        //v  = v_pie(v, 1.5) - .5 * v_rectangles(v, .5);
-        v = dejongsCurtains(v, 1.4);
-        // ----------- affin-e post-transform -----------
-        mat2 postA = mat2(
-            1., -.3,
-            -0.3, 1.
-        );
-
-        v = postA * v;
-
-        v = wrap(v);
-        v += 0.003 * randn2();
-
-        ivec2 pix = ivec2(domainToPixel(v));
-        if (pix.x >= 0 && pix.x < int(v2Resolution.x) &&
-            pix.y >= 0 && pix.y < int(v2Resolution.y)) {
-            imageAtomicAdd(hitsImg, pix, 1u);
-        }
-    }
-}
-
-
-
-void IFS(uint sid)
+uint hash_u32(uint x)
 {
-    seed = sid;
+    // Chris Wellons / Murmur-inspired mix — fast and sufficient
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
 
-    // start in domain like Processing would
-    vec2 v = vec2(
+void splat_hit(vec2 v)
+{
+    ivec2 pix = ivec2(domainToPixel(v));
+    if (pix.x >= 0 && pix.x < int(v2Resolution.x) &&
+        pix.y >= 0 && pix.y < int(v2Resolution.y)) {
+        imageAtomicAdd(hitsImg, pix, 1u);
+    }
+}
+
+uint seed_from(uint baseSid, uint salt) {
+    return hash_u32(baseSid ^ salt);   // use your existing hash
+}
+
+void emit_balloon(uint baseSid)
+{
+    // independent RNG stream
+    seed = hash_u32(baseSid ^ 0xA341316Cu);
+
+    vec2 p = vec2(
         mix(u_x1, u_x2, rand01()),
         mix(u_y1, u_y2, rand01())
     );
 
+    float period = 30.0;
+    int   N      = 3;
+    float R      = 1.4142135623730951; // sqrt(2)
+    float rot    = 2.0 * PI * fGlobalTime / period;
+
+    float step_r = r_opt_ngon(N) * 0.4;
+
+    // local loop budget for this emitter
     for (int i = 0; i < n; i++) {
-
-        float t = fGlobalTime;
-        float period = 30.0;
-        float base = 2.0 * PI * fGlobalTime / period;
-
-        // ----- classic IFS mixture: choose ONE transform -----
-        int   N   = 6;
-    
-        float R   = 1.4142135623730951; //sqrt(2)
-        //float R   = 2.; //sqrt(2)
-        float rot = 2.0 * PI * fGlobalTime / period;
-
-        v = leviathan(v, 1.0);
-        float step_r = r_opt_ngon(N) * .9; 
-        for (int j = 0; j < 1; j++) {
-            v = chaos_step_ngon(v, N, R, rot, step_r);
+        vec2 p = v_square(p, 1.);
+        for (int j = 0; j < 3; j++) {
+            p = chaos_step_ngon(p, N, R, rot, step_r);
         }
-        
-        v = v_disc(v, 2.); 
-        // ----- post -----
-        mat2 scale = mat2(
-                1.1, 0,
-                0, 1.1
-                );
-        //v *= scale;
+        p = v_secant(v_juliascope(p, 1.), 1.5);
+        p = wrap(p, WRAP_SPHERICAL);
+        p += 0.003 * randn2();
 
-        v = wrap(v);
-        v += 0.003 * randn2();
+        splat_hit(p);
 
-        ivec2 pix = ivec2(domainToPixel(v));
-        if (pix.x >= 0 && pix.x < int(v2Resolution.x) &&
-            pix.y >= 0 && pix.y < int(v2Resolution.y)) {
-            imageAtomicAdd(hitsImg, pix, 1u);
-        }
     }
 }
 
 
+void emit_spot(uint baseSid)
+{
+       // independent RNG stream
+    seed = hash_u32(baseSid ^ 0xA341316Cu);
+
+    vec2 p = vec2(
+        mix(u_x1, u_x2, rand01()),
+        mix(u_y1, u_y2, rand01())
+    );
+
+    float period = 30.0;
+    int   N      = 3;
+    float R      = 1.4142135623730951; // sqrt(2)
+    float rot    = 2.0 * PI * fGlobalTime / period;
+
+    float step_r = r_opt_ngon(N) * 0.4;
+
+    // local loop budget for this emitter
+    for (int i = 0; i < n; i++) {
+        vec2 p = leviathan(p, .05 );
+        for (int j = 0; j < 1; j++) {
+            p = chaos_step_ngon(p, N, R, rot, step_r);
+        }
+        p = v_perspective(v_disc(p, .75), 1.0);
+        p = wrap(p, WRAP_MOD);
+        p += 0.003 * randn2();
+
+        splat_hit(p);
+
+    } 
+}
+
+
+void emit_planet(uint baseSid)
+{
+       // independent RNG stream
+    seed = hash_u32(baseSid ^ 0xA341316Cu);
+
+    vec2 p = vec2(
+        mix(u_x1, u_x2, rand01()),
+        mix(u_y1, u_y2, rand01())
+    );
+
+    float period = 30.0;
+    int   N      = 6;
+    float R      = 1.4142135623730951; // sqrt(2)
+    float rot    = 2.0 * PI * fGlobalTime / period;
+
+    float step_r = r_opt_ngon(N) * 0.4;
+
+    // local loop budget for this emitter
+    for (int i = 0; i < n; i++) {
+        vec2 p = leviathan(p, .1 );
+        for (int j = 0; j < 4; j++) {
+            p = chaos_step_ngon(p, N, R, rot, step_r);
+        }
+        // try a = -1.323, b = 2.663 for a more "planet-like" perspective
+        p = v_perspective(v_disc(v_julian(p, 1.0), 2.85), 1.0);
+        p = wrap(p, WRAP_NO_WRAP);
+        p += 0.003 * randn2();
+
+        splat_hit(p);
+
+    } 
+}
+
+void emit_squares(uint baseSid)
+{
+       // independent RNG stream
+    seed = hash_u32(baseSid ^ 0xA341316Cu);
+
+    vec2 p = vec2(
+        mix(u_x1, u_x2, rand01()),
+        mix(u_y1, u_y2, rand01())
+    );
+
+    float period = 30.0;
+    int   N      = 4;
+    float R      = 1.4142135623730951; // sqrt(2)
+    float rot    = 2.0 * PI * fGlobalTime / period;
+
+    float step_r = r_opt_ngon(N) * 0.4;
+
+    // local loop budget for this emitter
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < 10; j++) {
+            p = chaos_step_ngon(p, N, R, rot, step_r);
+        }
+        // try a = -1.323, b = 2.663 for a more "planet-like" perspective
+        p = v_perspective(v_rectangles(v_julian(p, 1.0), 1.), 1.0);
+        p = wrap(p, WRAP_MOD);
+        p += 0.003 * randn2();
+
+        splat_hit(p);
+
+    } 
+}
+
+void emit_clouds(uint baseSid)
+{
+
+    seed = hash_u32(baseSid ^ 0xA341316Cu);
+
+    vec2 p = vec2(
+        mix(u_x1, u_x2, rand01()),
+        mix(u_y1, u_y2, rand01())
+    );
+
+    float period = 30.0;
+    int   N      = 4;
+    float R      = 1.4142135623730951; // sqrt(2)
+    float rot    = 2.0 * PI * fGlobalTime / period;
+
+    float step_r = r_opt_ngon(N) * 0.4;
+
+    // local loop budget for this emitter
+    for (int i = 0; i < n; i++) {
+        vec2 p = v_disc(p, .1 );
+        for (int j = 0; j < 6; j++) {
+            p = chaos_step_ngon(p, N, R, rot, step_r);
+        }
+        // try a = -1.323, b = 2.663 for a more "planet-like" perspective
+        p = v_disc(v_spherical(p, .5), 1.5);
+        p = wrap(p, WRAP_SPHERICAL);
+        p += 0.003 * randn2();
+
+        splat_hit(p);
+
+    } 
+
+}
+
+
+void render_planet_scene(uint baseSid) {    
+    emit_spot(baseSid);
+    emit_squares(baseSid);
+    emit_clouds(baseSid);    
+    emit_planet(baseSid);
+    emit_balloon(baseSid);
+}
+
+
+void IFS(uint baseSid)
+{
+    render_planet_scene(baseSid);
+    // add more emit_*() calls as you like
+}
 
 
 void main() {
@@ -877,4 +1001,5 @@ void main() {
     uint sid = uint(gid.x + gid.y * int(v2Resolution.x)) + 1235125u;
     //processOne(sid);
     IFS(sid);
+
 }
